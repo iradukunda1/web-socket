@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <title>Home</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/notie/4.3.1/notie.min.css"
+        integrity="sha512-UrjLcAek5jbj1vwGbXkviPHtgSNVNQCedX7cBIMDdSI2iZtUcZcoTh2Sqc8R9mVcijOjFUi1IlxhfrE1uWaIog=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <style>
+        .chabox {
+            outline: 1px solid silver;
+            min-height: 160px;
+            padding: 0.5em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h1 class="mt-3 text-center">This is the Chat page</h1>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-8">
+                <h3>Chat</h3>
+                <!-- <a href="https://github.com">Github</a> -->
+                <div class="form-group">
+                    <label for="username">UserName:</label>
+                    <input type="text" class="form-control" id="username" placeholder="Enter your username"
+                        autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label for="message">Message:</label>
+                    <textarea class="form-control" id="message" placeholder="Enter your message"
+                        autocomplete="off"></textarea>
+                </div>
+                <hr />
+                <a href="javascript:void(0);" class="btn btn-outline-secondary" id="sendBtn">Send Message</a>
+                <input type="hidden" name="action" id="action" />
+
+                <div class="float-end mt-2" id="status">
+
+                </div>
+
+                <div id="outbox" class="chabox mt-3"></div>
+
+            </div>
+            <div class="col-md-4">
+                <h3>Who's Online</h3>
+                <ul id="online_users"></ul>
+            </div>
+        </div>
+    </div>
+</body>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM"
+    crossorigin="anonymous"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/notie/4.3.1/notie.min.js"
+    integrity="sha512-NHRCwRf2LnVSlLDejCA9oS3fG3/FLSQIPCjAWl3M7tVi5wszwr6FxkjotWnQDXLE+aLKcxRrzFDNEgXj9nvkPw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<script src="./static/reconnecting-websocket.min.js"></script>
+
+<script>
+    let socket = null
+    let outbox = document.getElementById("outbox")
+    let userField = document.getElementById("username")
+    let messageField = document.getElementById("message")
+    let sendField = document.getElementById("sendBtn")
+
+    window.onbeforeunload = function () {
+        jsonData = {}
+        jsonData["action"] = "left"
+        socket.send(JSON.stringify(jsonData))
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+
+        const online = `<span class="badge bg-success">Connected</span>`
+        const offline = `<span class="badge bg-danger">Not Connected</span>`
+        let statusField = document.getElementById("status")
+
+        socket = new ReconnectingWebSocket("ws://localhost:8000/ws", null, {
+            debug: true,
+            reconnectInterval: 3000
+        })
+
+        socket.onopen = () => {
+            console.log("Successfully connected to the server");
+            statusField.innerHTML = online
+        }
+        socket.onclose = () => {
+            console.log("Connection closed");
+            statusField.innerHTML = offline
+        }
+
+        socket.onerror = (error) => {
+            console.log("Error: " + error);
+            statusField.innerHTML = offline
+        }
+
+        socket.onmessage = (message) => {
+            let data = JSON.parse(message.data);
+            switch (data.action) {
+                case "list_users":
+                    let ul = document.getElementById("online_users")
+                    while (ul.firstChild) ul.removeChild(ul.firstChild)
+                    if (data.connected_user.length > 0) {
+                        data.connected_user.forEach(item => {
+                            let li = document.createElement("li")
+                            li.appendChild(document.createTextNode(item));
+                            ul.appendChild(li)
+                        });
+                    }
+                    break;
+                case "boardcast":
+                    outbox.innerHTML = outbox.innerHTML + data.message + "<br/>"
+                    break;
+            }
+        }
+
+        let userInput = document.getElementById("username")
+        userInput.addEventListener("change", function () {
+            let jsonData = {}
+            jsonData["action"] = "username"
+            jsonData["username"] = this.value
+            socket.send(JSON.stringify(jsonData))
+        })
+
+        document.getElementById("message").addEventListener("keydown", function (event) {
+            if (event.code === "Enter") {
+                if (!socket) {
+                    console.log("Can't send your message to empty socket connection")
+                    return false
+                } else {
+                    if (userField.value === "" || messageField.value === "") {
+                        alert("please fill in the username and message before hit send message")
+                        return false;
+                    } else {
+                        sendMessage()
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }
+        })
+
+        sendField.addEventListener("click", function (event) {
+            if (userField.value === "" || messageField.value === "") {
+                notifyMsg("error", "please fill in the username and message before hit send message")
+                return false;
+            } else {
+                sendMessage()
+            }
+        })
+
+    });
+
+    function sendMessage() {
+        let jsonData = {}
+        jsonData["action"] = "boardcast"
+        jsonData["username"] = userField.value
+        jsonData["message"] = messageField.value
+        socket.send(JSON.stringify(jsonData))
+        messageField.value = ""
+    }
+
+    function notifyMsg(type, message) {
+        notie.alert({
+            type: type,
+            text: message,
+        })
+    }
+</script>
+
+</html>
